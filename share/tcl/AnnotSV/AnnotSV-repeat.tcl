@@ -27,87 +27,88 @@
 proc checkRepeatFile {} {
     
     global g_AnnotSV
-    
-    ## Check if the repeat file has been downloaded then formatted
-    #############################################################
-    set extannDir "$g_AnnotSV(annotationsDir)/Annotations_$g_AnnotSV(organism)/BreakpointsAnnotations"
-    set repeatFileDownloaded [glob -nocomplain "$extannDir/Repeat/$g_AnnotSV(genomeBuild)/Repeat.bed"]
-    set repeatFileFormatted [glob -nocomplain "$extannDir/Repeat/$g_AnnotSV(genomeBuild)/*_Repeat.sorted.bed"]
-    
-    if {$repeatFileDownloaded eq "" && $repeatFileFormatted eq ""} {
-        # No Repeat annotation
-        set g_AnnotSV(repeatAnn) 0
-        return
-    } else {
-        # Repeat annotation
-        set g_AnnotSV(repeatAnn) 1
-        # Check if the user asked for these annotations in the configfile
-        set test 0
-        foreach col "Repeat_coord_left Repeat_type_left Repeat_coord_right Repeat_type_right" {
-            if {[lsearch -exact "$g_AnnotSV(outputColHeader)" $col] ne -1} {set test 1;break}
-        }
-        if {$test eq 0} {set g_AnnotSV(repeatAnn) 0; return}
-    }
-    
-    if {[llength $repeatFileFormatted]>1} {
-        puts "Several repeat files exist:"
-        puts "$repeatFileFormatted"
-        puts "Keep only one: [lindex $repeatFileFormatted end]\n"
-        foreach repeat [lrange $repeatFileFormatted 0 end-1] {
-            file rename -force $repeat $repeat.notused
-        }
-        return
-    }
-    
-    if {$repeatFileFormatted eq ""} {
-        # The downloaded file exist but not the formatted.
-        set repeatFileFormatted "$extannDir/Repeat/$g_AnnotSV(genomeBuild)/[clock format [clock seconds] -format "%Y%m%d"]_Repeat.sorted.bed"
-        file delete -force $repeatFileFormatted.tmp
-        puts "\t...Repeats configuration ([clock format [clock seconds] -format "%B %d %Y - %H:%M"])"
-        puts "\t\t...creation of $repeatFileFormatted"
-        puts "\t\t   (done only once during the first Repeats annotation)"
+    foreach genomeBuild {GRCh37 GRCh38 T2T-CHM13} {
+        ## Check if the repeat file has been downloaded then formatted
+        #############################################################
+        set extannDir "$g_AnnotSV(annotationsDir)/Annotations_$g_AnnotSV(organism)/BreakpointsAnnotations"
+        set repeatFileDownloaded [glob -nocomplain "$extannDir/Repeat/$genomeBuild/Repeat.bed"]
+        set repeatFileFormatted [glob -nocomplain "$extannDir/Repeat/$genomeBuild/*_Repeat.sorted.bed"]
         
-        set f [open $repeatFileDownloaded]
-        set i 0
-        set L_Text {}
-        while {![eof $f]} {
-            set L [gets $f]
-            if {$L eq ""} {continue}
-            regsub "^chr" $L "" L
-            set chrom [lindex $L 0]
-            if {[lsearch -exact {1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 X Y M MT} $chrom] eq -1} {continue}
-            lappend L_Text "$L"
-            if {$i>500000} {
-                WriteTextInFile [join $L_Text "\n"] $repeatFileFormatted.tmp
-                set L_Text {}
-                set i 0
+        if {$repeatFileDownloaded eq "" && $repeatFileFormatted eq ""} {
+            # No Repeat annotation
+            set g_AnnotSV(repeatAnn) 0
+            return
+        } else {
+            # Repeat annotation
+            set g_AnnotSV(repeatAnn) 1
+            # Check if the user asked for these annotations in the configfile
+            set test 0
+            foreach col "Repeat_coord_left Repeat_type_left Repeat_coord_right Repeat_type_right" {
+                if {[lsearch -exact "$g_AnnotSV(outputColHeader)" $col] ne -1} {set test 1;break}
             }
+            if {$test eq 0} {set g_AnnotSV(repeatAnn) 0; return}
         }
-        WriteTextInFile [join $L_Text "\n"] $repeatFileFormatted.tmp
         
-        # Sorting of the bedfile:
-        # Intersection with very large files can cause trouble with excessive memory usage.
-        # A presort of the bed files by chromosome and then by start position combined with the use of the -sorted option will invoke a memory-efficient algorithm.
-        set sortTmpFile "$g_AnnotSV(outputDir)/[clock format [clock seconds] -format "%Y%m%d-%H%M%S"]_sort.tmp.bash"
-        ReplaceTextInFile "#!/bin/bash" $sortTmpFile
-        WriteTextInFile "# The locale specified by the environment can affects the traditional sort order. We need to use native byte values." $sortTmpFile
-        WriteTextInFile "export LC_ALL=C" $sortTmpFile
-        WriteTextInFile "sort -k1,1 -k2,2n $repeatFileFormatted.tmp > $repeatFileFormatted" $sortTmpFile
-        file attributes $sortTmpFile -permissions 0755
-        if {[catch {eval exec bash $sortTmpFile} Message]} {
-            puts "-- checkRepeatFile --"
-            puts "sort -k1,1 -k2,2n $repeatFileFormatted.tmp > $repeatFileFormatted"
-            puts "$Message"
-            puts "Exit with error"
-            exit 2
+        if {[llength $repeatFileFormatted]>1} {
+            puts "Several repeat files exist:"
+            puts "$repeatFileFormatted"
+            puts "Keep only one: [lindex $repeatFileFormatted end]\n"
+            foreach repeat [lrange $repeatFileFormatted 0 end-1] {
+                file rename -force $repeat $repeat.notused
+            }
+            return
         }
-        file delete -force $sortTmpFile
-        file delete -force $repeatFileFormatted.tmp
-        file delete -force $repeatFileDownloaded
         
-        close $f
-        
-        return
+        if {$repeatFileFormatted eq ""} {
+            # The downloaded file exist but not the formatted.
+            set repeatFileFormatted "$extannDir/Repeat/$genomeBuild/[clock format [clock seconds] -format "%Y%m%d"]_Repeat.sorted.bed"
+            file delete -force $repeatFileFormatted.tmp
+            puts "\t...Repeats configuration ([clock format [clock seconds] -format "%B %d %Y - %H:%M"])"
+            puts "\t\t...creation of $repeatFileFormatted"
+            puts "\t\t   (done only once during the first Repeats annotation)"
+            
+            set f [open $repeatFileDownloaded]
+            set i 0
+            set L_Text {}
+            while {![eof $f]} {
+                set L [gets $f]
+                if {$L eq ""} {continue}
+                regsub "^chr" $L "" L
+                set chrom [lindex $L 0]
+                if {[lsearch -exact {1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 X Y M MT} $chrom] eq -1} {continue}
+                lappend L_Text "$L"
+                if {$i>500000} {
+                    WriteTextInFile [join $L_Text "\n"] $repeatFileFormatted.tmp
+                    set L_Text {}
+                    set i 0
+                }
+            }
+            WriteTextInFile [join $L_Text "\n"] $repeatFileFormatted.tmp
+            
+            # Sorting of the bedfile:
+            # Intersection with very large files can cause trouble with excessive memory usage.
+            # A presort of the bed files by chromosome and then by start position combined with the use of the -sorted option will invoke a memory-efficient algorithm.
+            set sortTmpFile "$g_AnnotSV(outputDir)/[clock format [clock seconds] -format "%Y%m%d-%H%M%S"]_sort.tmp.bash"
+            ReplaceTextInFile "#!/bin/bash" $sortTmpFile
+            WriteTextInFile "# The locale specified by the environment can affects the traditional sort order. We need to use native byte values." $sortTmpFile
+            WriteTextInFile "export LC_ALL=C" $sortTmpFile
+            WriteTextInFile "sort -k1,1 -k2,2n $repeatFileFormatted.tmp > $repeatFileFormatted" $sortTmpFile
+            file attributes $sortTmpFile -permissions 0755
+            if {[catch {eval exec bash $sortTmpFile} Message]} {
+                puts "-- checkRepeatFile --"
+                puts "sort -k1,1 -k2,2n $repeatFileFormatted.tmp > $repeatFileFormatted"
+                puts "$Message"
+                puts "Exit with error"
+                exit 2
+            }
+            file delete -force $sortTmpFile
+            file delete -force $repeatFileFormatted.tmp
+            file delete -force $repeatFileDownloaded
+            
+            close $f
+            
+            return
+        }
     }
 }
 
