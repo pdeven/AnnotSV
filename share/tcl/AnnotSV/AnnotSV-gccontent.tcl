@@ -32,35 +32,43 @@
 proc checkFASTAfiles {} {
     
     global g_AnnotSV
-    
-    ## Check if the FASTA file has been downloaded then formatted
-    ############################################################
-    set extannDir "$g_AnnotSV(annotationsDir)/Annotations_$g_AnnotSV(organism)/BreakpointsAnnotations"
-    set FASTAfileDownloaded [glob -nocomplain "$extannDir/GCcontent/$g_AnnotSV(genomeBuild)/*chromFa.tar.gz"]
-    set FASTAfileFormatted [glob -nocomplain "$extannDir/GCcontent/$g_AnnotSV(genomeBuild)/$g_AnnotSV(genomeBuild)_chromFa.fasta"]
-    
-    if {$FASTAfileDownloaded eq "" && $FASTAfileFormatted eq ""} {
-        # No GCcontent annotations requested by the user
-        set g_AnnotSV(gcContentAnn) 0
-        return
-    } else {
-        set g_AnnotSV(gcContentAnn) 1
-        # Check if the user asked for these annotations in the configfile
-        set test 0
-        foreach col "GC_content_left GC_content_right" {
-            if {[lsearch -exact "$g_AnnotSV(outputColHeader)" $col] ne -1} {set test 1;break}
+    puts "checkFASTAfiles"
+    foreach genomeBuild {GRCh37 GRCh38 T2T-CHM13} {
+        # Check if the FASTA file has been downloaded and then formatted
+        ################################################################
+        set extannDir "$g_AnnotSV(annotationsDir)/Annotations_$g_AnnotSV(organism)/BreakpointsAnnotations"
+
+        # Check for downloaded compressed FASTA tarball
+        set FASTAfileDownloaded [glob -nocomplain "$extannDir/GCcontent/$genomeBuild/*chromFa.tar.gz"]
+
+        # Check for the formatted (uncompressed) FASTA file
+        set FASTAfileFormatted [glob -nocomplain "$extannDir/GCcontent/$genomeBuild/${genomeBuild}_chromFa.fasta"]
+
+        puts "Downloaded file for $genomeBuild: $FASTAfileDownloaded"
+
+        if {$FASTAfileDownloaded eq "" && $FASTAfileFormatted eq ""} {
+            # No GCcontent annotations requested by the user
+            set g_AnnotSV(gcContentAnn) 0
+            return
+        } else {
+            set g_AnnotSV(gcContentAnn) 1
+            # Check if the user asked for these annotations in the configfile
+            set test 0
+            foreach col "GC_content_left GC_content_right" {
+                if {[lsearch -exact "$g_AnnotSV(outputColHeader)" $col] ne -1} {set test 1;break}
+            }
+            if {$test eq 0} {set g_AnnotSV(gcContentAnn) 0; return}
         }
-        if {$test eq 0} {set g_AnnotSV(gcContentAnn) 0; return}
-    }
-    
-    if {$FASTAfileFormatted eq ""} {
-        # The downloaded file exist but not the formatted:
-        updateFASTAfiles
+        
+        if {$FASTAfileFormatted eq ""} {
+            # The downloaded file exist but not the formatted:
+            updateFASTAfiles $genomeBuild
+        }
     }
 }
 
-proc updateFASTAfiles {} {
-    
+proc updateFASTAfiles {genomeBuild} {
+    puts "updateFASTAfiles"
     global g_AnnotSV
     
     if {[catch {package require tar} Message]} {
@@ -72,9 +80,9 @@ proc updateFASTAfiles {} {
     }
     
     set extannDir "$g_AnnotSV(annotationsDir)/Annotations_$g_AnnotSV(organism)/BreakpointsAnnotations"
-    set FASTAfileDownloaded [glob -nocomplain "$extannDir/GCcontent/$g_AnnotSV(genomeBuild)/*chromFa.tar.gz"]
-    set FASTAfileFormatted "$extannDir/GCcontent/$g_AnnotSV(genomeBuild)/$g_AnnotSV(genomeBuild)_chromFa.fasta"
-    set ChromSizesFile "$extannDir/GCcontent/$g_AnnotSV(genomeBuild)/$g_AnnotSV(genomeBuild)_chromFa.chromSizes"
+    set FASTAfileDownloaded [glob -nocomplain "$extannDir/GCcontent/$genomeBuild/*chromFa.tar.gz"]
+    set FASTAfileFormatted "$extannDir/GCcontent/$genomeBuild/${genomeBuild}_chromFa.fasta"
+    set ChromSizesFile "$extannDir/GCcontent/$genomeBuild/${genomeBuild}_chromFa.chromSizes"
     
     puts "\t...GC content configuration ([clock format [clock seconds] -format "%B %d %Y - %H:%M"])"
     puts "\t\t...creation of $FASTAfileFormatted"
@@ -82,20 +90,22 @@ proc updateFASTAfiles {} {
     
     # Extracting files from the .tar.gz file
     set chan [open "|gzip -cd $FASTAfileDownloaded"]
-    ::tar::untar $chan -chan -dir "$extannDir/GCcontent/$g_AnnotSV(genomeBuild)"
+    ::tar::untar $chan -chan -dir "$extannDir/GCcontent/$genomeBuild"
     
     # Merging in a unique file ($FASTAfileFormatted)
     foreach chrom {1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 X Y M MT} {
-        if {$g_AnnotSV(genomeBuild) eq "GRCh37"} {
-            set PathGB "$g_AnnotSV(genomeBuild)"
-        } elseif {$g_AnnotSV(genomeBuild) eq "GRCh38"} {
-            set PathGB "$g_AnnotSV(genomeBuild)/chroms"
-        } elseif {$g_AnnotSV(genomeBuild) eq "mm9"} {
-            set PathGB "$g_AnnotSV(genomeBuild)"
-        } elseif {$g_AnnotSV(genomeBuild) eq "mm10"} {
-            set PathGB "$g_AnnotSV(genomeBuild)"
-        } elseif {$g_AnnotSV(genomeBuild) eq "mm39"} {
-            set PathGB "$g_AnnotSV(genomeBuild)"
+        if {$genomeBuild eq "GRCh37"} {
+            set PathGB "$genomeBuild"
+        } elseif {$genomeBuild eq "GRCh38"} {
+            set PathGB "$genomeBuild/chroms"
+        } elseif {$genomeBuild eq "mm9"} {
+            set PathGB "$genomeBuild"
+        } elseif {$genomeBuild eq "mm10"} {
+            set PathGB "$genomeBuild"
+        } elseif {$genomeBuild eq "mm39"} {
+            set PathGB "$genomeBuild"
+        } elseif {$genomeBuild eq "T2T-CHM13"} {
+            set PathGB "$genomeBuild/chroms"
         }
         if {![file exists $extannDir/GCcontent/$PathGB/chr$chrom.fa]} {continue}
         WriteTextInFile [exec sed "s/chr//" $extannDir/GCcontent/$PathGB/chr$chrom.fa] $FASTAfileFormatted
@@ -128,7 +138,7 @@ proc updateFASTAfiles {} {
 
 
 proc GCcontentAnnotation {BreakpointChrom BreakpointPos} {
-    
+    puts "GCcontentAnnotation"
     global g_AnnotSV
     global g_GCcontent
     
@@ -141,12 +151,12 @@ proc GCcontentAnnotation {BreakpointChrom BreakpointPos} {
     
     # Checking with the size of the chrom is needed
     set extannDir "$g_AnnotSV(annotationsDir)/Annotations_$g_AnnotSV(organism)/BreakpointsAnnotations"
-    set ChromSizesFile "$extannDir/GCcontent/$g_AnnotSV(genomeBuild)/$g_AnnotSV(genomeBuild)_chromFa.chromSizes"
+    set ChromSizesFile "$extannDir/GCcontent/$genomeBuild/${genomeBuild}_chromFa.chromSizes"
     foreach L [LinesFromFile $ChromSizesFile] {
         set sizeOf([lindex $L 0]) [lindex $L 1]
     }
     
-    set FASTAfileFormatted [glob -nocomplain "$extannDir/GCcontent/$g_AnnotSV(genomeBuild)/$g_AnnotSV(genomeBuild)_chromFa.fasta"]
+    set FASTAfileFormatted [glob -nocomplain "$extannDir/GCcontent/$genomeBuild/${genomeBuild}_chromFa.fasta"]
     
     
     if {![info exists g_GCcontent(DONE)]} {
@@ -255,4 +265,3 @@ proc GCcontentAnnotation {BreakpointChrom BreakpointPos} {
         return $g_GCcontent(Empty)
     }
 }
-
