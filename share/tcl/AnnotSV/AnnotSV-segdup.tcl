@@ -26,93 +26,105 @@
 proc checkSegDupFile {} {
     
     global g_AnnotSV
-    
-    ## Check if the SegDup file has been downloaded then formatted
-    #############################################################
-    set extannDir "$g_AnnotSV(annotationsDir)/Annotations_$g_AnnotSV(organism)/BreakpointsAnnotations"
-    set segdupFileDownloaded [glob -nocomplain "$extannDir/SegDup/$g_AnnotSV(genomeBuild)/SegDup.bed"]
-    set segdupFileFormatted [glob -nocomplain "$extannDir/SegDup/$g_AnnotSV(genomeBuild)/*_SegDup.sorted.bed"]
-    
-    if {$segdupFileDownloaded eq "" && $segdupFileFormatted eq ""} {
-        # No SegDup annotation
-        set g_AnnotSV(segdupAnn) 0
-        return
-    } else {
-        # SegDup annotation
-        set g_AnnotSV(segdupAnn) 1
-        # Check if the user asked for these annotations in the configfile
-        set test 0
-        foreach col "SegDup_left SegDup_right" {
-            if {[lsearch -exact "$g_AnnotSV(outputColHeader)" $col] ne -1} {set test 1;break}
-        }
-        if {$test eq 0} {set g_AnnotSV(segdupAnn) 0; return}
-    }
-    
-    if {[llength $segdupFileFormatted]>1} {
-        puts "Several segmental duplication files exist:"
-        puts "$segdupFileFormatted"
-        puts "Keep only one: [lindex $segdupFileFormatted end]\n"
-        foreach segdup [lrange $segdupFileFormatted 0 end-1] {
-            file rename -force $segdup $segdup.notused
-        }
-        return
-    }
-    
-    if {$segdupFileFormatted eq ""} {
-        # The downloaded file exist but not the formatted.
-        set segdupFileFormatted "$extannDir/SegDup/$g_AnnotSV(genomeBuild)/[clock format [clock seconds] -format "%Y%m%d"]_SegDup.sorted.bed"
-        puts "\t...creation of the \"[file tail $segdupFileFormatted]\" file ([clock format [clock seconds] -format "%B %d %Y - %H:%M"])\n\t   (done only once)"
-        ReplaceTextInFile "#Chrom\tStart\tEnd\tSegDup" $segdupFileFormatted.tmp
-        
-        set f [open $segdupFileDownloaded]
-        set i 0
-        set L_Text {}
-        while {![eof $f]} {
-            set L [gets $f]
-            if {$L eq ""} {continue}
-            if {[regexp "^#" $L]} {continue}
-            
-            set Ls [split $L "\t"]
-            regsub "chr" [lindex $Ls 0] "" chrom
-            set start [lindex $Ls 1]
-            set end [lindex $Ls 2]
-            set IDsegdup "${chrom}:${start}-${end}"
-            
-            lappend L_Text "$chrom\t$start\t$end\t$IDsegdup"
-            if {$i>500000} {
-                WriteTextInFile [join $L_Text "\n"] $segdupFileFormatted.tmp
-                set L_Text {}
-                set i 0
+
+    foreach genomeBuild {GRCh37 GRCh38 T2T-CHM13} {
+
+        # Define the base path for external annotations
+        set extannDir "$g_AnnotSV(annotationsDir)/Annotations_$g_AnnotSV(organism)/BreakpointsAnnotations"
+
+        # Path to the downloaded SegDup BED file
+        set segdupFileDownloaded [glob -nocomplain "$extannDir/SegDup/$genomeBuild/SegDup.bed"]
+        puts "Downloaded file for $genomeBuild: $segdupFileDownloaded"
+
+        # Path to the formatted (sorted) SegDup file
+        set segdupFileFormatted [glob -nocomplain "$extannDir/SegDup/$genomeBuild/*_SegDup.sorted.bed"]
+        puts "Formatted file for $genomeBuild: $segdupFileFormatted"
+
+        if {$segdupFileDownloaded eq "" && $segdupFileFormatted eq ""} {
+            # No SegDup annotation
+            set g_AnnotSV(segdupAnn) 0
+            return
+        } else {
+            # SegDup annotation
+            set g_AnnotSV(segdupAnn) 1
+            # Check if the user asked for these annotations in the configfile
+            set test 0
+            foreach col "SegDup_left SegDup_right" {
+                if {[lsearch -exact "$g_AnnotSV(outputColHeader)" $col] ne -1} {set test 1;break}
             }
-            incr i
+            if {$test eq 0} {set g_AnnotSV(segdupAnn) 0; return}
         }
-        WriteTextInFile [join $L_Text "\n"] $segdupFileFormatted.tmp
         
-        # Sorting of the bedfile:
-        # Intersection with very large files can cause trouble with excessive memory usage.
-        # A presort of the bed files by chromosome and then by start position combined with the use of the -sorted option will invoke a memory-efficient algorithm.
-        set sortTmpFile "$g_AnnotSV(outputDir)/[clock format [clock seconds] -format "%Y%m%d-%H%M%S"]_sort.tmp.bash"
-        ReplaceTextInFile "#!/bin/bash" $sortTmpFile
-        WriteTextInFile "# The locale specified by the environment can affects the traditional sort order. We need to use native byte values." $sortTmpFile
-        WriteTextInFile "export LC_ALL=C" $sortTmpFile
-        WriteTextInFile "sort -k1,1 -k2,2n $segdupFileFormatted.tmp > $segdupFileFormatted" $sortTmpFile
-        file attributes $sortTmpFile -permissions 0755
-        if {[catch {eval exec bash $sortTmpFile} Message]} {
-            puts "-- checkSegDupFile --"
-            puts "sort -k1,1 -k2,2n $segdupFileFormatted.tmp > $segdupFileFormatted"
-            puts "$Message"
-            puts "Exit with error"
-            exit 2
+        if {[llength $segdupFileFormatted]>1} {
+            puts "Several segmental duplication files exist:"
+            puts "$segdupFileFormatted"
+            puts "Keep only one: [lindex $segdupFileFormatted end]\n"
+            foreach segdup [lrange $segdupFileFormatted 0 end-1] {
+                file rename -force $segdup $segdup.notused
+            }
+            return
         }
-        file delete -force $sortTmpFile
-        file delete -force $segdupFileFormatted.tmp
-        file delete -force $segdupFileDownloaded
         
-        close $f
-        
-        return
+        if {$segdupFileFormatted eq ""} {
+            # The downloaded file exist but not the formatted.
+            set segdupFileFormatted "$extannDir/SegDup/$genomeBuild/[clock format [clock seconds] -format %Y%m%d]_SegDup.sorted.bed"
+
+            #set segdupFileFormatted "$extannDir/SegDup/$g_AnnotSV$genomeBuild/[clock format [clock seconds] -format "%Y%m%d"]_SegDup.sorted.bed"
+            
+            puts "\t...creation of the \"[file tail $segdupFileFormatted]\" file ([clock format [clock seconds] -format "%B %d %Y - %H:%M"])\n\t   (done only once)"
+            ReplaceTextInFile "#Chrom\tStart\tEnd\tSegDup" $segdupFileFormatted.tmp
+            
+            set f [open $segdupFileDownloaded]
+            set i 0
+            set L_Text {}
+            while {![eof $f]} {
+                set L [gets $f]
+                if {$L eq ""} {continue}
+                if {[regexp "^#" $L]} {continue}
+                
+                set Ls [split $L "\t"]
+                regsub "chr" [lindex $Ls 0] "" chrom
+                set start [lindex $Ls 1]
+                set end [lindex $Ls 2]
+                set IDsegdup "${chrom}:${start}-${end}"
+                
+                lappend L_Text "$chrom\t$start\t$end\t$IDsegdup"
+                if {$i>500000} {
+                    WriteTextInFile [join $L_Text "\n"] $segdupFileFormatted.tmp
+                    set L_Text {}
+                    set i 0
+                }
+                incr i
+            }
+            WriteTextInFile [join $L_Text "\n"] $segdupFileFormatted.tmp
+            
+            # Sorting of the bedfile:
+            # Intersection with very large files can cause trouble with excessive memory usage.
+            # A presort of the bed files by chromosome and then by start position combined with the use of the -sorted option will invoke a memory-efficient algorithm.
+            set sortTmpFile "$g_AnnotSV(outputDir)/[clock format [clock seconds] -format "%Y%m%d-%H%M%S"]_sort.tmp.bash"
+            ReplaceTextInFile "#!/bin/bash" $sortTmpFile
+            WriteTextInFile "# The locale specified by the environment can affects the traditional sort order. We need to use native byte values." $sortTmpFile
+            WriteTextInFile "export LC_ALL=C" $sortTmpFile
+            WriteTextInFile "sort -k1,1 -k2,2n $segdupFileFormatted.tmp > $segdupFileFormatted" $sortTmpFile
+            file attributes $sortTmpFile -permissions 0755
+            if {[catch {eval exec bash $sortTmpFile} Message]} {
+                puts "-- checkSegDupFile --"
+                puts "sort -k1,1 -k2,2n $segdupFileFormatted.tmp > $segdupFileFormatted"
+                puts "$Message"
+                puts "Exit with error"
+                exit 2
+            }
+            file delete -force $sortTmpFile
+            file delete -force $segdupFileFormatted.tmp
+            file delete -force $segdupFileDownloaded
+            
+            close $f
+            
+            return
+        }
     }
 }
+
 
 
 
