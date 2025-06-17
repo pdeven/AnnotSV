@@ -31,7 +31,7 @@ proc checkBenignFiles {} {
     
     global g_AnnotSV
     
-    foreach genomeBuild {GRCh37 GRCh38} {
+    foreach genomeBuild {GRCh38 T2T-CHM13} {
         set benignDir "$g_AnnotSV(annotationsDir)/Annotations_$g_AnnotSV(organism)/SVincludedInFt/BenignSV/$genomeBuild"
         
         # Files to create / update
@@ -82,7 +82,7 @@ proc checkBenignFiles {} {
                 }
                 # sort
                 catch {checkBed $benignFile_Tmp $benignDir}
-                file delete -force $benignFile_Tmp
+                
             }
         }
         
@@ -106,14 +106,13 @@ proc checkBenignFiles {} {
                 puts "Exit with error"
                 exit 2
             }
-            file delete -force $sortTmpFile
-            file delete -force $benignFile_TmpFormatted
+
         }
         
         # Prepare the update of the overlappedGenes files
         foreach SVtype {"Gain" "Loss" "Ins" "Inv"} {
             set overlappedGenes_in_benign${SVtype}File "$benignDir/overlappedGenes_in_benign_${SVtype}_SV_$genomeBuild.tsv"
-            file delete -force [set overlappedGenes_in_benign${SVtype}File]
+            
         }
     }
     
@@ -159,11 +158,11 @@ proc checkOverlappedGenesBenignFiles {} {
     global g_AnnotSV
     
     if {$g_AnnotSV(organism) eq "Human"} {
-        foreach genomeBuild {GRCh37 GRCh38} {
+        foreach genomeBuild {GRCh37 GRCh38 T2T-CHM13} {
             set benignDir "$g_AnnotSV(annotationsDir)/Annotations_$g_AnnotSV(organism)/SVincludedInFt/BenignSV/$genomeBuild"
             set genesDir "$g_AnnotSV(annotationsDir)/Annotations_$g_AnnotSV(organism)/Genes/$genomeBuild"
             
-            foreach tx {RefSeq ENSEMBL} {
+            foreach tx {RefSeq} {
                 set GenesfileFormatted [glob -nocomplain $genesDir/genes.${tx}.sorted.bed]
                 
                 foreach SVtype {Loss Gain Ins Inv} {
@@ -309,7 +308,7 @@ proc checkClinVar_benignFile {genomeBuild} {
         
         # Clean:
         ########
-        file delete -force $ClinVarFileDownloaded
+        #file delete -force $ClinVarFileDownloaded
     }
     
     return
@@ -398,8 +397,8 @@ proc checkClinGenHITS_benignFile {genomeBuild} {
     
     # Clean:
     ########
-    file delete -force $ClinGenFileDownloaded1
-    file delete -force $ClinGenFileDownloaded2
+    #file delete -force $ClinGenFileDownloaded1
+    #file delete -force $ClinGenFileDownloaded2
     
     return
 }
@@ -408,13 +407,18 @@ proc checkClinGenHITS_benignFile {genomeBuild} {
 
 
 proc checkDGV_benignFile {genomeBuild} {
-    
+
     global g_AnnotSV
-    
+
     ## Check if DGV files have been downloaded
     ##########################################
     set benignDir "$g_AnnotSV(annotationsDir)/Annotations_$g_AnnotSV(organism)/SVincludedInFt/BenignSV/$genomeBuild"
-    set DGVfileDownloaded [glob -nocomplain "$benignDir/GRCh3*_hg*_variants_*.txt"]
+
+    if { $genomeBuild eq "T2T-CHM13" } {
+        set DGVfileDownloaded [glob -nocomplain "$benignDir/chm13_hs1_variants_2020-02-25.txt"]
+    } else {
+        set DGVfileDownloaded [glob -nocomplain "$benignDir/GRCh3*_hg*_variants_*.txt"]
+    }
     
     if {$DGVfileDownloaded ne ""} {
         # We have some DGV annotations to add in $benign*File
@@ -495,9 +499,7 @@ proc checkDGV_benignFile {genomeBuild} {
             WriteTextInFile [join $L_toWriteInv "\n"]  $benignInvFile_Tmp
         }
         
-        # Clean:
-        ########
-        file delete -force $DGVfileDownloaded
+
         
     }
     
@@ -738,12 +740,91 @@ proc checkGnomAD_benignFile {genomeBuild} {
             
             # Clean
             #######
-            foreach gnomADfileDownloaded $gnomADfilesDownloaded {
-                file delete -force $gnomADfileDownloaded
+
+        }
+    } elseif {$genomeBuild eq "T2T-CHM13"} {
+        ## Check if gnomAD SV file (v4.1) has been downloaded
+        ######################################################
+        set benignDir "$g_AnnotSV(annotationsDir)/Annotations_$g_AnnotSV(organism)/SVincludedInFt/BenignSV/T2T-CHM13"
+        set gnomADfileDownloaded [glob -nocomplain "$benignDir/gnomad.v4.1.sv.sites.lifted.col1to626.chm13.bed.gz"]
+
+        if {$gnomADfileDownloaded ne ""} {
+            puts "\t   >>> T2T-CHM13 gnomAD v4.1 parsing ([clock format [clock seconds] -format "%B %d %Y - %H:%M"])"
+
+            set benignLossFile_Tmp "$benignDir/benign_Loss_SV_T2T-CHM13.tmp.bed"
+            set benignGainFile_Tmp "$benignDir/benign_Gain_SV_T2T-CHM13.tmp.bed"
+            set benignInsFile_Tmp  "$benignDir/benign_Ins_SV_T2T-CHM13.tmp.bed"
+            set benignInvFile_Tmp  "$benignDir/benign_Inv_SV_T2T-CHM13.tmp.bed"
+            set L_toWriteLoss {}
+            set L_toWriteGain {}
+            set L_toWriteIns {}
+            set L_toWriteInv {}
+
+            set f [open "| gzip -cd $gnomADfileDownloaded"]
+            while {![eof $f]} {
+                set L [gets $f]
+                if {$L eq ""} {continue}
+                set Ls [split $L "\t"]
+
+                # Header parsing
+                if {[regexp "^#?chrom" $L]} {
+                    set i_chrom    [lsearch -exact $Ls "#chrom"]; if {$i_chrom == -1} { set i_chrom [lsearch -exact $Ls "chrom"] }
+                    set i_start    [lsearch -exact $Ls "start"]
+                    set i_end      [lsearch -exact $Ls "end"]
+                    set i_name     [lsearch -exact $Ls "name"]
+                    set i_svtype   [lsearch -exact $Ls "svtype"]
+                    set i_af       [lsearch -exact $Ls "AF"]
+                    set i_filter   [lsearch -exact $Ls "FILTER"]
+                    continue
+                }
+
+                set FILTER [lindex $Ls $i_filter]
+                if {$FILTER ne "PASS"} {continue}
+
+                set SVTYPE [lindex $Ls $i_svtype]
+                if {[lsearch -exact {DEL DUP INS INV} $SVTYPE] == -1} {continue}
+
+                set AF [lindex $Ls $i_af]
+                if {$AF eq "NA" || $AF < 0.001} {continue}
+
+                set chrom [lindex $Ls $i_chrom]
+                set start [lindex $Ls $i_start]
+                set end   [lindex $Ls $i_end]
+                set name  [lindex $Ls $i_name]
+                set coord "$chrom:$start-$end"
+                set info "$chrom\t$start\t$end\t$name\t$coord\t[format "%.4f" $AF]"
+
+                if {$SVTYPE eq "DEL"} {
+                    lappend L_toWriteLoss $info
+                }
+                if {$SVTYPE eq "DUP"} {
+                    lappend L_toWriteGain $info
+                }
+                if {$SVTYPE eq "INS"} {
+                    lappend L_toWriteIns $info
+                }
+                if {$SVTYPE eq "INV"} {
+                    lappend L_toWriteInv $info
+                }
+            }
+            close $f
+
+            puts "\t       ([llength $L_toWriteLoss] Loss + [llength $L_toWriteGain] Gain + [llength $L_toWriteIns] INS + [llength $L_toWriteInv] INV)"
+
+            if {$L_toWriteLoss ne {}} {
+                WriteTextInFile [join $L_toWriteLoss "\n"] $benignLossFile_Tmp
+            }
+            if {$L_toWriteGain ne {}} {
+                WriteTextInFile [join $L_toWriteGain "\n"] $benignGainFile_Tmp
+            }
+            if {$L_toWriteIns ne {}} {
+                WriteTextInFile [join $L_toWriteIns "\n"] $benignInsFile_Tmp
+            }
+            if {$L_toWriteInv ne {}} {
+                WriteTextInFile [join $L_toWriteInv "\n"] $benignInvFile_Tmp
             }
         }
     }
-    
     return
 }
 
@@ -854,9 +935,7 @@ proc checkHPRC_benignFile {genomeBuild} {
             #######
             file delete -force $HPRCfileDownloaded
         }
-
     }
-
     return
 }
 
@@ -944,7 +1023,7 @@ proc checkDDD_benignFile {genomeBuild} {
         
         # Clean:
         ########
-        file delete -force $DDDfileDownloaded
+
     }
     
     return
@@ -991,7 +1070,7 @@ proc check1000g_benignFile {genomeBuild} {
                 if {[regexp -nocase "error|fail" $line]} {puts "\t   $line"}
             }
             puts "\t   => No multiallelic treatment done."
-            file delete -force $1000gFileTmp
+            
         }
         
         # Selection of the benign variants to keep:
@@ -1037,7 +1116,11 @@ proc check1000g_benignFile {genomeBuild} {
                 set val [lindex $inf 0]
                 set $val [lindex $inf 1]
                 if {[regexp "AF$" $val]} {
-                    if {[set $val]>$max} {set max [set $val]}
+                    set afvals [split [set $val] ","]
+                    foreach af $afvals {
+                        if {[catch {expr {double($af)}}]} { continue }
+                        if {$af > $max} { set max $af }
+                    }
                 }
             }
             # allele frequency > 0.1%
@@ -1095,8 +1178,6 @@ proc check1000g_benignFile {genomeBuild} {
         
         # Clean:
         ########
-        file delete -force $1000gFileDownloaded
-        file delete -force $1000gFileTmp
     }
     
     return
@@ -1115,6 +1196,7 @@ proc checkdbVar_benignFile {genomeBuild} {
 
 	# Deletions
     set dbVarDelFileDownloaded "$benignDir/$genomeBuild.nr_deletions.common.bed.gz"
+
     if {[file exists $dbVarDelFileDownloaded]} {
         # We have some dbVar annotations to add in benign file
         if {[info exists g_AnnotSV(benignText)]} {
@@ -1200,15 +1282,15 @@ proc checkdbVar_benignFile {genomeBuild} {
     ##########
     if {$L_toWriteLoss ne {}} {
         WriteTextInFile [join $L_toWriteLoss "\n"] $benignLossFile_Tmp
-        file delete -force $dbVarDelFileDownloaded
+        #file delete -force $dbVarDelFileDownloaded
     }
     if {$L_toWriteGain ne {}} {
         WriteTextInFile [join $L_toWriteGain "\n"] $benignGainFile_Tmp
-        file delete -force $dbVarDupFileDownloaded
+        #file delete -force $dbVarDupFileDownloaded
     }
     if {$L_toWriteIns ne {}} {
         WriteTextInFile [join $L_toWriteIns "\n"]  $benignInsFile_Tmp
-        file delete -force $dbVarInsFileDownloaded
+        #file delete -force $dbVarInsFileDownloaded
     }
 
     return
@@ -1731,4 +1813,3 @@ proc poBenignSVannotation {SVchrom SVstart SVend L_GenesSVtoAnnotate} {
     
     return $poBenignText($SVchrom,$SVstart,$SVend)
 }
-
